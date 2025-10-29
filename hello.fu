@@ -1,5 +1,0 @@
-public class HelloFu {
-	public static string GetMessage() {
-		return "Hello, world!";
-	}
-}
