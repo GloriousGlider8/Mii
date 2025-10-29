@@ -1,0 +1,226 @@
+// BitConverterClass "stolen" from Arian's GLBExporter.fu
+public static class BitConverter
+{
+    /*
+    /// Converts 10_10_10_2 SNORM to 8_8_8_8 SNORM packed into u32
+    public static uint Convert1010102To8888Snorm(uint val)
+    {
+        int r = ((val >> 20) & 0x3FF);
+        int g = ((val >> 10) & 0x3FF);
+        int b = (val & 0x3FF);
+        int a = ((val >> 30) & 0x3);
+
+        // Sign-extend 10-bit
+        if ((r & 0x200) != 0) r |= ~0x3FF;
+        if ((g & 0x200) != 0) g |= ~0x3FF;
+        if ((b & 0x200) != 0) b |= ~0x3FF;
+
+        // 10-bit SNORM to 8-bit SNORM
+        r = (r * 127) / 511;
+        g = (g * 127) / 511;
+        b = (b * 127) / 511;
+
+        // 2-bit SNORM alpha: -2..1 → 0..255
+        a = ((a + 2) * 85);
+
+        return ((a & 0xFF) << 24) | ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
+    }
+    */
+
+    /// Converts packed 10_10_10_2 SNORM (signed normalized) to float[3]
+    public static void Convert1010102ToFloat(uint packed, float[]! outVec, int offset)
+    {
+        // Extract each 10-bit component, sign-extended
+        int nx = (packed << 22) >> 22;
+        int ny = (packed << 12) >> 22;
+        int nz = (packed << 2)  >> 22;
+        // int nw = (packed >> 30) & 0x03; // The 2-bit w component, not used for normals
+
+        // Convert to float in range [-1, 1]
+        outVec[offset * 3 + 0] = nx / 511.0;
+        outVec[offset * 3 + 1] = ny / 511.0;
+        outVec[offset * 3 + 2] = nz / 511.0;
+    }
+
+    /// Converts packed 8_8_8_8 SNORM (signed normalized) to float[4]
+    public static void Convert8888SnormToFloat(uint packed, float[]! outVec)
+    {
+        int r = ((packed >> 16) & 0xFF);
+        int g = ((packed >> 8) & 0xFF);
+        int b = (packed & 0xFF);
+        int a = ((packed >> 24) & 0xFF);
+
+        // Convert to signed 8-bit
+        if (r > 127) r -= 256;
+        if (g > 127) g -= 256;
+        if (b > 127) b -= 256;
+        if (a > 127) a -= 256;
+
+        // SNORM conversion: -128..127 → -1..1
+        outVec[0] = r / 127.0;
+        outVec[1] = g / 127.0;
+        outVec[2] = b / 127.0;
+        outVec[3] = a / 127.0;
+    }
+
+    /// Converts 16-bit half-float to 32-bit float (IEEE754)
+    public static float HalfToFloat(ushort half)
+    {
+        uint sign = (half >> 15) & 0x1;
+        uint exp = (half >> 10) & 0x1F;
+        uint mant = half & 0x3FF;
+        uint f;
+
+        if (exp == 0)
+        {
+            if (mant == 0)
+            {
+                f = sign << 31; // Zero
+            }
+            else
+            {
+                // Subnormal half-float
+                exp = 1;
+                while ((mant & 0x400) == 0)
+                {
+                    mant <<= 1;
+                    exp--;
+                }
+                mant &= 0x3FF;
+                exp += 127 - 15;
+                f = (sign << 31) | (exp << 23) | (mant << 13);
+            }
+        }
+        else if (exp == 31)
+        {
+            // Inf or NaN
+            f = (sign << 31) | 0x7F800000 | (mant << 13);
+        }
+        else
+        {
+            int add = 127 - 15;
+            exp = exp + add;
+            f = (sign << 31) | (exp << 23) | (mant << 13);
+        }
+
+        return UIntToFloat(f);
+    }
+
+    /// Convert 32-bit unsigned integer to floating point.
+    /// As of 3.2.10, Fusion does not include any method to
+    /// convert bits to float, so native implementations are provided
+    /// along with a generic slow and terrible but functional fallback.
+    public static float UIntToFloat(uint bits)
+    {
+#if C || CPP
+        native { return *(float *)&bits; }
+        // Return dummy for Fusion interpreter.
+        return 0.0;
+#elif JS || TS
+        native
+        {
+            // Not ideal: place into new ArrayBuffer.
+            const arr = new Uint32Array([bits]);
+            // Get DataView and read back as float.
+            return new DataView(arr.buffer)
+                .getFloat32(0, true);
+        }
+        return 0.0;
+#elif PY
+        native
+        {
+            # Pack into 4 bytes little-endian, then unpack as float.
+            packed = struct.pack("<I", bits)
+            (value,) = struct.unpack("<f", packed)
+            return value
+        }
+        return 0.0;
+#elif CS
+        native
+        {
+            // BitConverter expects int.
+            int asInt = unchecked((int)bits);
+            return BitConverter.Int32BitsToSingle(asInt);
+        }
+        return 0.0;
+#elif JAVA
+        native
+        {
+            return Float.intBitsToFloat(bits);
+        }
+        return 0.0;
+#else
+        // Parse sign.
+        bool sign = (bits & 0x80000000) != 0;
+
+        // Parse 8 bit exponent, biased by 127.
+        int exp = ((bits >> 23) & 0xFF);
+
+        // Parse 23-bit fraction/mantissa.
+        uint frac = bits & 0x7FFFFF;
+
+        float mantissa;
+        float value;
+
+        if (exp == 0)
+        {
+            // — Subnormal or zero
+            if (frac == 0)
+            {
+                // +- 0
+                return sign ? -0.0 : 0.0;
+            }
+            mantissa = frac / Math.Pow(2.0, 23);      // no implicit leading 1
+            value    = Math.Pow(2.0, -126) * mantissa;
+        }
+        else if (exp == 255)
+        {
+            // — Inf or NaN
+            if (frac != 0)
+                return Math.NaN;
+            return sign ? Math.NegativeInfinity : Math.PositiveInfinity;
+        }
+        else
+        {
+            // — Normalized
+            mantissa = 1.0 + (frac / Math.Pow(2.0, 23));
+            value    = mantissa * Math.Pow(2.0, exp - 127);
+        }
+
+        // Apply sign bit.
+        return sign ? (-value) : value;
+#endif
+    }
+
+    public static int FloatToInt(float v) {
+#if C || CPP
+        native { return *(int *)&v; }
+        return 0;
+#elif JS || TS
+        // JavaScript/TypeScript: DataView on an ArrayBuffer (little-endian)
+        native {
+            const arr = new Float32Array([v]);
+            return new DataView(arr.buffer).getUint32(0, true);
+        }
+        return 0;
+#elif PY
+        native {
+            return struct.unpack("<I", struct.pack("<f", value))[0];
+        }
+        return 0;
+#elif CS
+        native {
+            return System.BitConverter.ToUInt32(System.BitConverter.GetBytes(value), 0);
+        }
+        return 0;
+#elif JAVA
+        // Java: Float.floatToIntBits returns signed int, but bit-pattern is identical
+        native {
+            return Float.floatToIntBits(value);
+        }
+        return 0;
+#else
+        assert false, "Not implemented for pure Fusion.";
+#endif
+    }
+}

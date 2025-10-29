@@ -1,289 +1,18 @@
-// BitConverterClass "stolen" from Arian's GLBExporter.fu
-public static class BitConverter
-{
-    /*
-    /// Converts 10_10_10_2 SNORM to 8_8_8_8 SNORM packed into u32
-    public static uint Convert1010102To8888Snorm(uint val)
-    {
-        int r = ((val >> 20) & 0x3FF);
-        int g = ((val >> 10) & 0x3FF);
-        int b = (val & 0x3FF);
-        int a = ((val >> 30) & 0x3);
+// The reason why you might be seeing so many errors is because this file requires Readers.fu
 
-        // Sign-extend 10-bit
-        if ((r & 0x200) != 0) r |= ~0x3FF;
-        if ((g & 0x200) != 0) g |= ~0x3FF;
-        if ((b & 0x200) != 0) b |= ~0x3FF;
-
-        // 10-bit SNORM to 8-bit SNORM
-        r = (r * 127) / 511;
-        g = (g * 127) / 511;
-        b = (b * 127) / 511;
-
-        // 2-bit SNORM alpha: -2..1 → 0..255
-        a = ((a + 2) * 85);
-
-        return ((a & 0xFF) << 24) | ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
-    }
-    */
-
-    /// Converts packed 10_10_10_2 SNORM (signed normalized) to float[3]
-    public static void Convert1010102ToFloat(uint packed, float[]! outVec, int offset)
-    {
-        // Extract each 10-bit component, sign-extended
-        int nx = (packed << 22) >> 22;
-        int ny = (packed << 12) >> 22;
-        int nz = (packed << 2)  >> 22;
-        // int nw = (packed >> 30) & 0x03; // The 2-bit w component, not used for normals
-
-        // Convert to float in range [-1, 1]
-        outVec[offset * 3 + 0] = nx / 511.0;
-        outVec[offset * 3 + 1] = ny / 511.0;
-        outVec[offset * 3 + 2] = nz / 511.0;
-    }
-
-    /// Converts packed 8_8_8_8 SNORM (signed normalized) to float[4]
-    public static void Convert8888SnormToFloat(uint packed, float[]! outVec)
-    {
-        int r = ((packed >> 16) & 0xFF);
-        int g = ((packed >> 8) & 0xFF);
-        int b = (packed & 0xFF);
-        int a = ((packed >> 24) & 0xFF);
-
-        // Convert to signed 8-bit
-        if (r > 127) r -= 256;
-        if (g > 127) g -= 256;
-        if (b > 127) b -= 256;
-        if (a > 127) a -= 256;
-
-        // SNORM conversion: -128..127 → -1..1
-        outVec[0] = r / 127.0;
-        outVec[1] = g / 127.0;
-        outVec[2] = b / 127.0;
-        outVec[3] = a / 127.0;
-    }
-
-    /// Converts 16-bit half-float to 32-bit float (IEEE754)
-    public static float HalfToFloat(ushort half)
-    {
-        uint sign = (half >> 15) & 0x1;
-        uint exp = (half >> 10) & 0x1F;
-        uint mant = half & 0x3FF;
-        uint f;
-
-        if (exp == 0)
-        {
-            if (mant == 0)
-            {
-                f = sign << 31; // Zero
-            }
-            else
-            {
-                // Subnormal half-float
-                exp = 1;
-                while ((mant & 0x400) == 0)
-                {
-                    mant <<= 1;
-                    exp--;
-                }
-                mant &= 0x3FF;
-                exp += 127 - 15;
-                f = (sign << 31) | (exp << 23) | (mant << 13);
-            }
-        }
-        else if (exp == 31)
-        {
-            // Inf or NaN
-            f = (sign << 31) | 0x7F800000 | (mant << 13);
-        }
-        else
-        {
-            int add = 127 - 15;
-            exp = exp + add;
-            f = (sign << 31) | (exp << 23) | (mant << 13);
-        }
-
-        return UIntToFloat(f);
-    }
-
-    /// Convert 32-bit unsigned integer to floating point.
-    /// As of 3.2.10, Fusion does not include any method to
-    /// convert bits to float, so native implementations are provided
-    /// along with a generic slow and terrible but functional fallback.
-    public static float UIntToFloat(uint bits)
-    {
-#if C || CPP
-        native { return *(float *)&bits; }
-        // Return dummy for Fusion interpreter.
-        return 0.0;
-#elif JS || TS
-        native
-        {
-            // Not ideal: place into new ArrayBuffer.
-            const arr = new Uint32Array([bits]);
-            // Get DataView and read back as float.
-            return new DataView(arr.buffer)
-                .getFloat32(0, true);
-        }
-        return 0.0;
-#elif PY
-        native
-        {
-            # Pack into 4 bytes little‑endian, then unpack as float.
-            packed = struct.pack("<I", bits)
-            (value,) = struct.unpack("<f", packed)
-            return value
-        }
-        return 0.0;
-#elif CS
-        native
-        {
-            // BitConverter expects int.
-            int asInt = unchecked((int)bits);
-            return BitConverter.Int32BitsToSingle(asInt);
-        }
-        return 0.0;
-#elif JAVA
-        native
-        {
-            return Float.intBitsToFloat(bits);
-        }
-        return 0.0;
-#else
-        // Parse sign.
-        bool sign = (bits & 0x80000000) != 0;
-
-        // Parse 8 bit exponent, biased by 127.
-        int exp = ((bits >> 23) & 0xFF);
-
-        // Parse 23-bit fraction/mantissa.
-        uint frac = bits & 0x7FFFFF;
-
-        float mantissa;
-        float value;
-
-        if (exp == 0)
-        {
-            // — Subnormal or zero
-            if (frac == 0)
-            {
-                // +- 0
-                return sign ? -0.0 : 0.0;
-            }
-            mantissa = frac / Math.Pow(2.0, 23);      // no implicit leading 1
-            value    = Math.Pow(2.0, -126) * mantissa;
-        }
-        else if (exp == 255)
-        {
-            // — Inf or NaN
-            if (frac != 0)
-                return Math.NaN;
-            return sign ? Math.NegativeInfinity : Math.PositiveInfinity;
-        }
-        else
-        {
-            // — Normalized
-            mantissa = 1.0 + (frac / Math.Pow(2.0, 23));
-            value    = mantissa * Math.Pow(2.0, exp - 127);
-        }
-
-        // Apply sign bit.
-        return sign ? (-value) : value;
-#endif
-    }
-
-    public static int FloatToInt(float v) {
-#if C || CPP
-        native { return *(int *)&v; }
-        return 0;
-#elif JS || TS
-        // JavaScript/TypeScript: DataView on an ArrayBuffer (little-endian)
-        native {
-            const arr = new Float32Array([v]);
-            return new DataView(arr.buffer).getUint32(0, true);
-        }
-        return 0;
-#elif PY
-        # Python: struct.pack/unpack
-        native {
-            # '<f' = little-endian float; '<I' = little-endian uint32
-            return struct.unpack("<I", struct.pack("<f", value))[0];
-        }
-        return 0;
-#elif CS
-        native {
-            return System.BitConverter.ToUInt32(System.BitConverter.GetBytes(value), 0);
-        }
-        return 0;
-#elif JAVA
-        // Java: Float.floatToIntBits returns signed int, but bit-pattern is identical
-        native {
-            return Float.floatToIntBits(value);
-        }
-        return 0;
-#else
-        assert "Not implemented for pure Fusion.";
-#endif
-    }
-
-}
-
-public class FUByteUtils {
-	/// Currently only supports Big Endian.
-
-	public byte[]# data;
-	public uint offset = 0;
-
-	public void Seek!(uint where) {
-		offset = where;
-	}
-
-	public void Padding!(uint size) {
-		offset += size;
-	}
-
-	public uint ReadUInt!(uint size) {
-		uint res = 0;
-		#if PY
-		native {
-			offset += size
-			res = int.from_bytes(self.data[offset-size:offset], "big", signed=False)
-		}
-		#else
-		
-		for (int i = 0; i < size; i++) {
-			res = (res << 8) | data[offset++];
-		}
-
-		#endif
-		return res;
-	}
-
-	public float ReadFloat!()
-    {
-        uint raw = ReadUInt(4);
-        return BitConverter.UIntToFloat(raw);
-    }
-
-	public string() ReadUTF8!(uint size) {
-		offset += size;
-		return Encoding.UTF8.GetString(data, offset - size, size);
-	}
-
-	public void ReadRaw!(uint size, byte[]! buffer) {
-		data.CopyTo(offset, buffer, 0, size);
-		offset += size;
-	}
-}
-
+/// ZLib compression implementation.
+/// Must be overrided using a library for your target language!
 public static class ZlibImpl {
-	public static void Decompress(byte[] input, byte[] output, uint windowBits, uint originalSize) {
+	/// Write the decompressed contents of `input` into `output`.
+	/// `windowBits` and `originalSize` must also be specified.
+	public static void Decompress(byte[] input, byte[] output, byte windowBits, uint originalSize) {
 		Console.WriteLine("!! DEFAULT ZlibImpl DOES NOT DO ANYTHING !!");
 		assert false, "You're still using the default ZlibImpl, please override it!";
 	}
 
-	
-	public static void Compress(byte[] input, byte[] output, uint level, uint windowBits) {
+	/// Write the Compressed contents of `input` into `output`.
+	/// `level` and `windowBits` must also be specified.
+	public static void Compress(byte[] input, byte[] output, byte level, byte windowBits) {
 		Console.WriteLine("!! DEFAULT ZlibImpl DOES NOT DO ANYTHING !!");
 		assert false, "You're still using the default ZlibImpl, please override it!";
 	}
@@ -295,10 +24,8 @@ public enum FFLiTextureFormat {
 	RGBA = 2
 }
 
-public static class FFLiResourceShapeElementTypeMax{
-	public const byte Value = 9;
-}
-
+/// The index that each shape element is stored at.
+/// Exmaple: `data[FFLiResourceShapeElementType.Position.ToInt()]` would get vertex position data.
 public enum FFLiResourceShapeElementType {
 	Position = 0,
 	Normal = 1,
@@ -316,12 +43,14 @@ public class Vec3 {
 	public float y = Math.NaN;
 	public float z = Math.NaN;
 
-	public void FromByteUtils!(FUByteUtils() data) {
+	/// Reads 3 IEEE 754 4-byte floats into `x`, `y` and `z` respectively.
+	public void FromByteReader!(ByteReader() data) {
 		x = data.ReadFloat();
 		y = data.ReadFloat();
 		z = data.ReadFloat();
 	}
 
+	/// Convenience function to set `x`, `y` and `z` to `Math.NaN`.
 	public void SetNaN!() {
 		x = Math.NaN;
 		y = Math.NaN;
@@ -329,23 +58,28 @@ public class Vec3 {
 	}
 }
 
+/// Represents the minimum and maximum values of vertex positions in shapes.
 public class BoundingBox {
 	public Vec3() min;
 	public Vec3() max;
 
-	public void FromByteUtils!(FUByteUtils() data) {
-		min.FromByteUtils(data);
-		max.FromByteUtils(data);
+	/// Reads 2 `Vec3`s into `min` and `max` respectively.
+	public void FromByteReader!(ByteReader() data) {
+		min.FromByteReader(data);
+		max.FromByteReader(data);
 	}
 
+	/// Convenience function to set the `x`, `y` and `z` values of `min` and `max` to `Math.NaN`.
 	public void SetNaN!() {
 		min.SetNaN();
 		max.SetNaN();
 	}
 }
 
+/// Convenience class containing 1 function to convert `FFLiResourcePartsInfo.WindowBits` to ZLib `windowBits`.
 public static class WindowBitConverter {
-	public static uint FFLiResourceWindowBitsToZlibWindowBits(uint windowBits) {
+	/// Converts `FFLiResourcePartsInfo.WindowBits` to ZLib `windowBits`.
+	public static byte FFLiResourceWindowBitsToZlibWindowBits(byte windowBits) {
 		if (windowBits <= 7) {return windowBits + 8;} // BITS_ZLIB 8-15
 		if (windowBits >= 8 && windowBits <= 15) {return windowBits + 16;} // BITS_GZIP 8-15
 		if (windowBits == 16) {return 32 + 15;} // BITS_ZLIB_OR_GZIP_15
@@ -353,6 +87,7 @@ public static class WindowBitConverter {
 	}
 }
 
+/// Passed to `FFLResource.FromByteReader` to provide more options for memory-management.
 public class FFLiResourceLoaderObjects {
 	public FFLiResourceHeader! ResourceHeader;
 	public FFLiResourceTextureHeader! TextureHeader;
@@ -390,9 +125,9 @@ public class FFLiPartData {
 	public FFLiPartDataFooter! Footer;
 	public byte[]#[6] Data;
 
-	public void FromByteUtils!(FUByteUtils() bUtils, uint size) {
+	public void FromByteReader!(ByteReader() bUtils, uint size) {
 		for (int i = 0; i < 6; i++) {
-			if (Header.ElementSize[i] <= 200000000) {
+			if (Header.ElementSize[i] <= 20000000 && Header.ElementSize[i] > 0) {
 				bUtils.Seek(Header.ElementOffset[i]);
 				bUtils.ReadRaw(Header.ElementSize[i], Data[i]);
 			}
@@ -400,7 +135,7 @@ public class FFLiPartData {
 
 		bool a = true;
 		foreach (uint i in Header.ElementSize) {
-			if (i != 0 && i <= 200000000) {
+			if (i <= 20000000 && i > 0) {
 				a = false;
 			}
 		}
@@ -411,14 +146,14 @@ public class FFLiPartData {
 		}
 
 		bUtils.Seek(size - 0x10);
-		Footer.FromByteUtils(bUtils);
+		Footer.FromByteReader(bUtils);
 	}
 
-	public FUByteUtils() LoadHeader!(byte[]# data) {
-		FUByteUtils() bUtils;
+	public ByteReader() LoadHeader!(byte[]# data) {
+		ByteReader() bUtils;
 		bUtils.data = data;
 
-		Header.FromByteUtils(bUtils);
+		Header.FromByteReader(bUtils);
 
 		Used = true;
 		return bUtils;
@@ -431,25 +166,25 @@ public class FFLiPartData {
 }
 
 public class FFLiPartDataHeader {
-	public uint[6] ElementOffset;
-	public uint[6] ElementSize;
+	public int[6] ElementOffset;
+	public int[6] ElementSize;
 	public BoundingBox() BoundingBox;
 	public Vec3()[6] Transform;
 
-	public void FromByteUtils!(FUByteUtils() bUtils) {
+	public void FromByteReader!(ByteReader() bUtils) {
 		for (int i = 0; i < 6; i++) {
-			ElementOffset[i] = bUtils.ReadUInt(4);
+			ElementOffset[i] = bUtils.ReadSInt(4);
 		}
 		for (int i = 0; i < 6; i++) {
-			ElementSize[i] = bUtils.ReadUInt(4); 
+			ElementSize[i] = bUtils.ReadSInt(4); 
 		}
-		if (ElementSize[FFLiResourceShapeElementType.Index.ToInt()] < 200000) {
+		if (ElementSize[FFLiResourceShapeElementType.Index.ToInt()] < 20000000) {
 			ElementSize[FFLiResourceShapeElementType.Index.ToInt()] *= 2;
 		}
 
-		BoundingBox.FromByteUtils(bUtils);
+		BoundingBox.FromByteReader(bUtils);
 		for (int i = 0; i < 6; i++) {
-			Transform[i].FromByteUtils(bUtils);
+			Transform[i].FromByteReader(bUtils);
 		}
 	}
 
@@ -460,20 +195,20 @@ public class FFLiPartDataHeader {
 
 public class FFLiPartDataFooter {
 	public uint MipOffset;
-	public uint Width;
-	public uint Height;
+	public ushort Width;
+	public ushort Height;
 	public FFLiTextureFormat Format;
-	public uint MipCount;
+	public byte MipCount;
 
-	public void FromByteUtils!(FUByteUtils() data) {
+	public void FromByteReader!(ByteReader() data) {
 		MipOffset = data.ReadUInt(4);
-		Width = data.ReadUInt(2);
-		Height = data.ReadUInt(2);
-		byte t = data.ReadUInt(1);
+		Width = data.ReadUShort(2);
+		Height = data.ReadUShort(2);
+		byte t = data.ReadByte();
 		if (t < 3) {
 			Format = FFLiTextureFormat.FromInt(t);
 		}
-		MipCount = data.ReadUInt(1);
+		MipCount = data.ReadByte();
 		data.Padding(2);
 	}
 }
@@ -482,29 +217,29 @@ public class FFLiResourcePartsInfo {
 	public uint Offset;
 	public uint UncompressedSize;
 	public uint CompressedSize;
-	public uint CompressionLevel;
-	public uint WindowBits;
-	public uint MemoryLevel;
-	public uint Strategy;
+	public byte CompressionLevel;
+	public byte WindowBits;
+	public byte MemoryLevel;
+	public byte Strategy;
 	public FFLiPartData! PartData;
-	FUByteUtils() BReader;
+	ByteReader() BReader;
 
-	public void FromByteUtils!(FUByteUtils() data, FFLiResourceLoaderObjects() objects) {
+	public void FromByteReader!(ByteReader() data, FFLiResourceLoaderObjects() objects) {
 		Offset = data.ReadUInt(4);
 		UncompressedSize = data.ReadUInt(4);
 		assert (UncompressedSize < 20000000) && ((UncompressedSize % 2) == 0), "Uncompressed Size invalid (should pass UncompressedSize < 20000000 and (UncompressedSize % 2) == 0)";
 		CompressedSize = data.ReadUInt(4);
 		assert CompressedSize <= 20000000, "Compressed Size too large (should be <= 20000000)";
-		CompressionLevel = data.ReadUInt(1);
+		CompressionLevel = data.ReadByte();
 		assert UncompressedSize == 0 || CompressionLevel < 11, "Compression Level invalid (should pass UncompressedSize == 0 or CompressionLevel < 11)";
-		WindowBits = data.ReadUInt(1);
-		MemoryLevel = data.ReadUInt(1);
+		WindowBits = data.ReadByte();
+		MemoryLevel = data.ReadByte();
 		assert UncompressedSize == 0 || MemoryLevel < 9, "Memory Level invalid (should pass UncompressedSize == 0 or MemoryLevel < 9)";
-		Strategy = data.ReadUInt(1);
+		Strategy = data.ReadByte();
 		assert Strategy <= 6, "Strategy too large (should be <= 6)";
 	}
 
-	public void LoadHeader!(FUByteUtils() data, byte[]# dataBuffer, byte[]! compressedBuffer) {
+	public void LoadHeader!(ByteReader() data, byte[]# dataBuffer, byte[]! compressedBuffer) {
 		if (UncompressedSize == 0) {
 			PartData.SetUnused();
 			return;
@@ -525,7 +260,7 @@ public class FFLiResourcePartsInfo {
 
 	public void LoadPart!() {
 		if (PartData.Used) {
-			PartData.FromByteUtils(BReader, UncompressedSize);
+			PartData.FromByteReader(BReader, UncompressedSize);
 		}
 	}
 }
@@ -535,7 +270,7 @@ public class FFLiResourceHeader {
 	public uint ExpandedBufferSize;
 	public bool IsExpand;
 
-	public void FromByteUtils!(FUByteUtils() data, FFLiResourceLoaderObjects() objects) {
+	public void FromByteReader!(ByteReader() data, FFLiResourceLoaderObjects() objects) {
 		assert data.ReadUTF8(4) == "FFRA", "Magic Header invalid (should be FFRA)";
 		assert data.ReadUInt(4) == 0x00070000, "Version invalid (should be 0x00070000)";
 		UncompressedBufferSize = data.ReadUInt(4);
@@ -549,43 +284,43 @@ public class FFLiResourceHeader {
 public class FFLiResourceTextureHeader {
 	public uint[11] TextureMaxSize;
 
-	public void FromByteUtils!(FUByteUtils() data, FFLiResourceLoaderObjects() objects) {
+	public void FromByteReader!(ByteReader() data, FFLiResourceLoaderObjects() objects) {
 		for (int i = 0; i < 11; i++) {
 			TextureMaxSize[i] = data.ReadUInt(4);
 			assert TextureMaxSize[i] < 20000000 && (TextureMaxSize[i] % 4) == 0, "Texture Max Size invalid (should pass TextureMaxSize < 20000000 and (TextureMaxSize % 4) == 0)";
 		}
 		for (int i = 0; i < 3; i++) {
-			objects.TextureBeard[i].FromByteUtils(data, objects);
+			objects.TextureBeard[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 132; i++) {
-			objects.TextureCap[i].FromByteUtils(data, objects);
+			objects.TextureCap[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 62; i++) {
-			objects.TextureEye[i].FromByteUtils(data, objects);
+			objects.TextureEye[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 24; i++) {
-			objects.TextureEyebrow[i].FromByteUtils(data, objects);
+			objects.TextureEyebrow[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 12; i++) {
-			objects.TextureWrinkle[i].FromByteUtils(data, objects);
+			objects.TextureWrinkle[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 12; i++) {
-			objects.TextureMakeup[i].FromByteUtils(data, objects);
+			objects.TextureMakeup[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 9; i++) {
-			objects.TextureGlasses[i].FromByteUtils(data, objects);
+			objects.TextureGlasses[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 2; i++) {
-			objects.TextureMole[i].FromByteUtils(data, objects);
+			objects.TextureMole[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 37; i++) {
-			objects.TextureMouth[i].FromByteUtils(data, objects);
+			objects.TextureMouth[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 6; i++) {
-			objects.TextureMustache[i].FromByteUtils(data, objects);
+			objects.TextureMustache[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 18; i++) {
-			objects.TextureNoseline[i].FromByteUtils(data, objects);
+			objects.TextureNoseline[i].FromByteReader(data, objects);
 		}
 	}
 }
@@ -593,61 +328,71 @@ public class FFLiResourceTextureHeader {
 public class FFLiResourceShapeHeader {
 	public uint[12] ShapeMaxSize;
 
-	public void FromByteUtils!(FUByteUtils() data, FFLiResourceLoaderObjects() objects) {
+	public void FromByteReader!(ByteReader() data, FFLiResourceLoaderObjects() objects) {
 		for (int i = 0; i < 12; i++) {
 			ShapeMaxSize[i] = data.ReadUInt(4);
 			assert ShapeMaxSize[i] < 20000000 && (ShapeMaxSize[i] % 2) == 0, "Shape Max Size invalid (should pass ShapeMaxSize < 20000000 and (ShapeMaxSize % 2) == 0)";
 		}
 		for (int i = 0; i < 4; i++) {
-			objects.ShapeBeard[i].FromByteUtils(data, objects);
+			objects.ShapeBeard[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 132; i++) {
-			objects.ShapeCapNormal[i].FromByteUtils(data, objects);
+			objects.ShapeCapNormal[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 132; i++) {
-			objects.ShapeCapHat[i].FromByteUtils(data, objects);
+			objects.ShapeCapHat[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 12; i++) {
-			objects.ShapeFaceline[i].FromByteUtils(data, objects);
+			objects.ShapeFaceline[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 1; i++) {
-			objects.ShapeGlasses[i].FromByteUtils(data, objects);
+			objects.ShapeGlasses[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 12; i++) {
-			objects.ShapeMask[i].FromByteUtils(data, objects);
+			objects.ShapeMask[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 18; i++) {
-			objects.ShapeNoseline[i].FromByteUtils(data, objects);
+			objects.ShapeNoseline[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 18; i++) {
-			objects.ShapeNose[i].FromByteUtils(data, objects);
+			objects.ShapeNose[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 132; i++) {
-			objects.ShapeHairNormal[i].FromByteUtils(data, objects);
+			objects.ShapeHairNormal[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 132; i++) {
-			objects.ShapeHairHat[i].FromByteUtils(data, objects);
+			objects.ShapeHairHat[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 132; i++) {
-			objects.ShapeForeheadNormal[i].FromByteUtils(data, objects);
+			objects.ShapeForeheadNormal[i].FromByteReader(data, objects);
 		}
 		for (int i = 0; i < 132; i++) {
-			objects.ShapeForeheadHat[i].FromByteUtils(data, objects);
+			objects.ShapeForeheadHat[i].FromByteReader(data, objects);
 		}
 	}
 }
 
+/// ## FFLResource
+/// `FFLResource` is used for the loading of FFL / AFL Resource files.
+/// ### Loading a Resource
+/// Use `FFLResource.FromByteReader` to load a resource from a `ByteReader`, storing objects in a `FFLiResourceLoaderObjects` object.
 public class FFLResource {
+	/// Contains `true` if the resource has been loaded successfully.
 	public bool IsLoaded = false;
-	public bool IsAFL23;
-	public bool IsAFL;
+	/// Contains `true` if the resource has been detected as `AFLResHigh_2_3.dat`.
+	/// (`objects.ResourceHeader.ExpandedBufferSize == 0x2502DE0`)
+	public bool IsAFL23 = false;
+	/// Contains `true` if the resource has been detected as an `AFLRes*.dat` file.
+	/// (`IsAFL23 || objects.ResourceHeader.ExpandedBufferSize == 0x239D5E0`)
+	public bool IsAFL = false;
 
-	public void FromByteUtils!(FUByteUtils() data, FFLiResourceLoaderObjects() objects) {
-		objects.ResourceHeader.FromByteUtils(data, objects);
+	/// Loads a resource from a `ByteReader`, storing objects in a `FFLiResourceLoaderObjects` object.
+	public void FromByteReader!(ByteReader() data, FFLiResourceLoaderObjects() objects) {
+		objects.ResourceHeader.FromByteReader(data, objects);
 		IsAFL23 = objects.ResourceHeader.ExpandedBufferSize == 0x2502DE0;
 		IsAFL = IsAFL23 || objects.ResourceHeader.ExpandedBufferSize == 0x239D5E0;
-		objects.TextureHeader.FromByteUtils(data, objects);
-		objects.ShapeHeader.FromByteUtils(data, objects);
+		objects.TextureHeader.FromByteReader(data, objects);
+		objects.ShapeHeader.FromByteReader(data, objects);
 		IsLoaded = true;
 	}
 }
