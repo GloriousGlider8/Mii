@@ -11,6 +11,7 @@ So far, the only thing written is `FFLResource`, which should allow you to load 
 * [ ] `FFLResource` full implementation (textures & shapes)
 * [X] `Ver3StoreData` (from Arian's repo)
 * [ ] `Expression`
+* [ ] FFLDatabase
 
 #### API-Specific
 
@@ -22,4 +23,4 @@ So far, the only thing written is `FFLResource`, which should allow you to load 
 
 * [ ] Extended file format support (`rsd`, `charinfo` and maybe even  `miic`..?)
 * [ ] Custom Expression support..?
-* [ ] Mii Conversions
+* [ ] Data Conversions
