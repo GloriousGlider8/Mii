@@ -11,7 +11,7 @@ So far, the only thing written is `FFLResource`, which should allow you to load 
 * [ ] `FFLResource` full implementation (textures & shapes)
 * [X] `Ver3StoreData` (from Arian's repo)
 * [ ] `Expression`
-* [ ] FFLDatabase
+* [ ] `FFLDatabase`
 
 #### API-Specific
 
