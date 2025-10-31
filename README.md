@@ -1,4 +1,4 @@
-# Mii
+# Mii.fu
 
 Core Mii implementation in [Fusion](https://fusion-lang.org/).
 
@@ -11,11 +11,12 @@ So far, the only thing written is `FFLResource`, which should allow you to load 
 * [ ] `FFLResource` full implementation (textures & shapes)
 * [X] `Ver3StoreData` (from Arian's repo)
 * [ ] `Expression`
+* [ ] `FFLDatabase`
 
 #### API-Specific
 
 * [ ] An FFL render server (like [mii-unsecure](https://mii-unsecure.ariankordi.net/))
-* [ ] Implement in [GDFL](https://github.com/GloriousGlider8/GDFL) (GoDot Face Library)
+* [X] Implement in [GDFL](https://github.com/GloriousGlider8/GDFL) (GoDot Face Library)
 * [ ] three.js impl.
 
 #### Extras
@@ -23,3 +24,4 @@ So far, the only thing written is `FFLResource`, which should allow you to load 
 * [ ] Extended file format support (`rsd`, `charinfo` and maybe even  `miic`..?)
 * [ ] Custom Expression support..?
 * [ ] Godot Mii Maker..?
+* [ ] Data Conversions

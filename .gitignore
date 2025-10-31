@@ -6,3 +6,5 @@ src/*.py
 *.obj
 localtesting/
 .vscode/
+gen/*
+build/

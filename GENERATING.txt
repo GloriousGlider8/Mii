@@ -1,0 +1,7 @@
+Generating sources
+
+This guide assumes CPP, you can have this as any langauge fut supports.
+
+git submodule update --recursive --remote mii-fusion-experiments
+fut -D CPP -l cpp src/Readers.fu src/FFLResource.fu -o gen/FFLResource.cpp
+fut -D CPP -l cpp mii-fusion-experiments/Ver3StoreData/Ver3CharInfo.fu mii-fusion-experiments/Ver3StoreData/Ver3StoreData.fu mii-fusion-experiments/Ver3StoreData/Crc16Ccitt.fu mii-fusion-experiments/Ver3StoreData/Utf16ToUtf8Converter.fu -o gen/Ver3StoreData.cpp
