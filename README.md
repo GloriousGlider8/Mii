@@ -20,5 +20,6 @@ So far, the only thing written is `FFLResource`, which should allow you to load 
 
 #### Extras
 
-* [ ] Extended file format support (`rsd`, `charinfo` and maybe even  `miic`)
+* [ ] Extended file format support (`rsd`, `charinfo` and maybe even  `miic`..?)
 * [ ] Custom Expression support..?
+* [ ] Godot Mii Maker..?

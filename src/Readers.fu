@@ -263,7 +263,7 @@ public class BitfieldReader {
 /// All methods assume big-endian byte order.
 public class ByteReader {
 	public byte[]# data;
-	uint offset = 0;
+	internal uint offset = 0;
 
 	/// Move the file pointer to `where` bytes.
 	public void Seek!(uint where) {

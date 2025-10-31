@@ -1,0 +1,5 @@
+# Map of overridden severities. 0 - Error, 1 - Warning, 2 - Info, 3 - Hint
+override:
+ ACCESSOR_INDEX_TRIANGLE_DEGENERATE: 0
+ MESH_PRIMITIVE_GENERATED_TANGENT_SPACE: 3
+ UNUSED_OBJECT: 3
